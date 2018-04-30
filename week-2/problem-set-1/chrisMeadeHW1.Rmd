@@ -1,0 +1,233 @@
+---
+title: "Stats 412 HW 1"
+author: "Chris Meade"
+date: "4/23/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Setup
+
+```{r}
+war <- read.csv("http://www.stat.cmu.edu/~cshalizi/uADA/15/hw/06/ch.csv", row.names = 1)
+```
+
+### Part 1. - Estimation
+
+```{r}
+fit1 <- glm(start ~ I(exports^2) + 
+              schooling + 
+              growth +
+              peace + 
+              concentration + 
+              lnpop + 
+              fractionalization +
+              dominance, 
+            family = binomial, 
+            data = war)
+
+summary(fit1)
+```
+
+From the summary given above, we can see that the intercept, `schooling`, `growth`, `peace`, and `lnpop` are significant at the `0.05` percent significance level.
+
+### Part 2. - Interpretation
+
+#### 1.)
+
+Probability of civil war for India in 1975:
+
+```{r}
+observation <- war[500,]
+probability <- predict(fit1, observation, type = 'response')
+probability
+```
+
+The probability for a civil war breaking out in India in 1975 is `0.4268744` according to our model.
+
+Now we look at the same data, except with the male secondary school enrollment rate 30 points higher.
+
+```{r}
+observation <- war[500,]
+observation$schooling <- observation$schooling + 30
+probability <- predict(fit1, observation, type = 'response')
+probability
+```
+
+The probability of civil war breaking out sharply decreases to `0.2667712`.
+
+Finally, we look at a country just like India in 1975, except that the ratio of commodity exports to GDP was 0.1 higher.
+
+```{r}
+observation <- war[500,]
+observation$exports <- observation$exports + .1
+probability <- predict(fit1, observation, type = 'response')
+probability
+```
+
+The probability of civil war is now `0.4373147`.
+
+#### 2.)
+
+We first get the data for Nigeria in 1965 and make a prediction.
+
+```{r}
+observation <- war[802,]
+probability <- predict(fit1, observation, type = 'response')
+probability
+```
+Our predicted probability is only `0.1397182`. Now we look at the same data, but with male secondary school enrollment rate  30 points higher.
+
+```{r}
+observation <- war[802,]
+observation$schooling <- observation$schooling + 30
+probability <- predict(fit1, observation, type = 'response')
+probability
+```
+Predicted probability of civil war drops to `0.07350307`. Finally, we look at the original Nigeria data from 1965 but with the ratio of commodity exports to GDP 0.1 higher.
+
+```{r}
+observation <- war[802,]
+observation$exports <- observation$exports + .1
+probability <- predict(fit1, observation, type = 'response')
+probability
+```
+The probability of civil war for a country with this data would be `0.1517707`.
+
+#### 3.)
+
+Because we utilize the nonlinear logit function in logistic regression, the probabilities' rate of change is different along different areas of the curve. It is greatest in the center and flattens out around `0` and `1`. Therefore, although we make the same changes to both observations, the resulting change in probability is different for each observation as they essentially lie along different points in the curve that may be stepper or flatter than the other.
+
+### Part 3. - Confusion
+
+#### 1.
+
+```{r, message = F}
+library(caret)
+probabilities <- predict(fit1, war, type = 'response')
+predictionsLOG <- ifelse(probabilities >= .5, 1, 0)
+confusionMatrix(war$start, predictionsLOG)
+```
+
+#### 2.
+
+The model's accuracy is `0.9331`, so its misclassification rate is `1-0.9331=0.0669`.
+
+#### 3.
+
+```{r}
+mean(war$start == 0, na.rm = T)
+```
+
+If a pundit were to precict `no war` for every observation on the dataset, they would be accruate `0.933162` percent of the time.
+
+Since the model almost always predicts `0`, the pundits accuracy is `0.994186` on the set of predictions.
+
+```{r}
+mean(predictionsLOG == 0, na.rm = T)
+```
+
+## 4. - Comparison
+
+#### 1.
+
+We must first preprocess the data to deal with missing values in to fit the `lda()` and `qda()` models. I choose to remove all observations with a missing feature. However, there are other methods that could be utilized to deal with these missing values, such as imputation. 
+
+We now fit the LDA model.
+
+```{r}
+library(tidyr)
+war2 <- war %>% drop_na()
+library(MASS)
+fitLDA <- lda(factor(start) ~ I(exports^2) + 
+              schooling + 
+              growth +
+              peace + 
+              concentration + 
+              lnpop + 
+              fractionalization +
+              dominance,
+              data = war2)
+
+fitLDA
+
+classLDA <- predict(fitLDA, war2)$class
+mean(war2$start == classLDA)
+```
+
+Our LDA model achieves an accuracy of `0.934593`.
+
+#### 2.
+
+Next we fit the QDA model.
+
+```{r}
+fitQDA <- qda(factor(start) ~ I(exports^2) + 
+              schooling + 
+              growth +
+              peace + 
+              concentration + 
+              lnpop + 
+              fractionalization +
+              dominance,
+              data = war2,
+              na.action = na.omit)
+
+fitQDA
+
+classQDA <- predict(fitQDA, war2)$class
+mean(war2$start == classQDA)
+```
+
+The QDA model acheives a slightly lower accuracy, `0.9273256`.
+
+#### 3.
+
+All three models have almost the exact same accuracy in classifying the dataset. This probably stems from the large class imbalance in the `start` variable, as all but `78` observations are `0`'s
+
+
+## 5. - ROC
+
+```{r, message = F}
+library(pROC)
+roc1 = roc(war$start, predictionsLOG)
+roc2 = roc(war2$start, as.numeric(classLDA))
+roc3 = roc(war2$start, as.numeric(classQDA))
+
+auc(roc1)
+auc(roc2)
+auc(roc3)
+
+plot(roc1, col = "red", lty =1, main = "ROC")
+plot(roc2, col = "blue", lty = 2, add = TRUE)
+plot(roc3, col = "green", lty = 3, add = TRUE)
+legend("topleft", legend=c("Logistic", "LDA", "QDA"),
+       col=c("red", "blue", "green"), lty=1:3, cex=0.8)
+```
+Based on these ROC curves, it seems that the QDA model achieves the highest AUC score, indicating that it may be the best model despite having a slightly lower accuracy than the others.
+
+## 6. - More  Logistic Regression
+
+```{r}
+library(ggplot2)
+y<- c(0,0,0,0,1,1,1,1)
+x1<-c(1,2,3,3,5,6,10,11)
+x2<-c(3,2,-1,-1,2,4,1,0)
+df <- data.frame(x1,x2,y)
+
+fitLOG <- glm(y ~ x1 + x2, family = binomial)
+```
+
+The error stems from the fact that some of our logit scores are so extreme that they numerically become 0 and 1. This stems from the fact that our data are linearlly separable, indicating that the model is able to perfectly predict an observations class label. See the plot below:
+
+```{r}
+ggplot(df, aes(x = x1, y = x2, color = as.factor(y))) +
+  geom_point() +
+  geom_abline(slope= -2, intercept = 9)
+```
+
+
+
