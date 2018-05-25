@@ -1,0 +1,211 @@
+---
+title: "Stats 412 HW 2"
+author: "Chris Meade"
+date: "5/14/2018"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+### Risky Behavior
+
+  The data `risky_behaviors.dta` is from a randomized experiment that targeted couples at high risk of HIV infection. Counseling sessions were provided to the treatment group regarding practices that could reduce their likelihood of contracting HIV. Couples were randomized either to a control group, a group in which just the woman participated, or a group in which both members of the couple participated. The response variable to be examined after three months was “number of unprotected sex acts.”
+
+```{r}
+library(foreign)
+rb <- read.dta("http://www.stat.columbia.edu/~gelman/arm/examples/risky.behavior/risky_behaviors.dta", convert.factors=TRUE)
+```
+
+
+### 1
+**Estimate**: Model this outcome as a function of treatment assignment using a Poisson regression. Does the model fit well? Is there evidence of overdispersion?
+
+```{r}
+rb$fupacts <- round(rb$fupacts)
+
+mod1 <- glm(fupacts ~ couples + women_alone, data = rb, family = poisson)
+summary(mod1)
+pchisq(mod1$deviance, df=mod1$df.residual, lower.tail=FALSE)
+```
+
+Since the p-value for the Deviance Goodness of Fit Test is 0, we conclude that the model is not a good fit for the data. To check for overdispersion, we fit a quasipoisson model to the data.
+
+```{r}
+mod2 <- glm(fupacts ~ couples + women_alone, data = rb, family = quasipoisson)
+summary(mod2)
+```
+
+The dispersion parameters is 44.13, indicating that the conditional variance is much larger than the conditional expectation. Therefore there is strong evidence for overdispersion.
+ 
+### 2
+**Estimate Extension**: Extend the model to include pre-treatment measures of the outcome and the additional pre-treatment variables included in the dataset. Does the model fit well? Is there evidence of overdispersion?
+
+```{r}
+mod3 <- glm(fupacts ~ sex + couples + women_alone + bs_hiv, data = rb, family = poisson)
+summary(mod3)
+```
+
+
+Residual deviance is smaller in this model, indicating that it is a better fit than the first.
+
+```{r}
+mod4 <- glm(fupacts ~ sex + couples + women_alone + bs_hiv, data = rb, family = quasipoisson)
+summary(mod4)
+```
+
+
+With a dispersion parameter of 42.35, we are still experiencing overdisperion.
+
+
+### 3
+  **Overdispersion**: Fit an overdispersed (quasi-)Poisson model. Fit a negative binomial model. Compare the models to previous two you have fit. Finally, what do you conclude regarding effectiveness of the intervention?
+  
+```{r}
+library(MASS)
+library(visreg)
+quasipois <- glm(fupacts ~ sex + couples + women_alone + bs_hiv, 
+                 data = rb, family = quasipoisson)
+negbin <- glm.nb(fupacts ~ sex + couples + women_alone + bs_hiv, 
+              data = rb)
+
+summary(quasipois)
+summary(negbin)
+
+mean(rb$fupacts-predict(quasipois,rb, response = "count"))
+mean(rb$fupacts-predict(negbin,rb, response = "count"))
+```
+
+The AIC for the negative binomial model is an order of magnitude less than for the corresponding poisson model, indicating that it is a much better fit than the latter. However, with the quasi-poisson model, we can't make such inferences based on liklihood. As a result, it becomes difficult to compare the quasipoisson against other models. We look at the difference in residuals amongst the two models and find them to be almost equal. Thus we conclude that both models were a successful intervention against overdisperion and the negative binomial has the added bonus of liklihood comparability.
+
+### 4
+  **Hurdle Model?**: Fit a hurdle model to this data. This is a classic data set for Poisson regression and overdispersion...i'm honestly curious if the hurdle model makes sense and improves over any of the other previous models you have built. Also compare rootograms for all. 
+```{r}
+library(pscl)
+
+hurdlePoisson <- hurdle(fupacts ~ sex + couples + women_alone + bs_hiv, 
+                 data = rb, dist = 'poisson', zero.dist = 'binomial')
+
+hurdleNB <- hurdle(fupacts ~ sex + couples + women_alone + bs_hiv, 
+                 data = rb, dist = 'negbin', zero.dist = 'binomial')
+
+summary(hurdlePoisson)
+summary(hurdleNB)
+
+library(countreg)
+rootogram(hurdlePoisson)
+rootogram(hurdleNB)
+rootogram(mod3)
+rootogram(negbin)
+
+AIC(hurdlePoisson)
+AIC(hurdleNB)
+AIC(negbin)
+AIC(mod3)
+```
+
+I first fit two hurdle models using a poisson and negative binomial distribution. Both follow the binomial in the zero distribution. Based on the AIC of these two hurdle models, the poisson model, and the negative binomial model, is appears that the negative binomial hurdle model provides the best fit of the data. Visually, this conclusion is supported by the rootograms for the models.
+
+### 5
+**Assumptions**: These data include responses from both men and women from the participating couples. Does this give you any concern?
+
+It may not be reasonable to assume independence, as two observations may come from the same couple.
+  
+### Pulling Punches
+
+The two `.Rdata` files under week 4 come as an abbreviated version of punch profiles from a boxing system to measure acceleration of boxers during live fights. The `profiles` list from the first file below has each individual punch profile which has a list item being a 3 column data frame of time (in ms around the middle of the punch event), acceleration in x (forward-back in g's), and acceleration in y (side-to-side in g's). Also attached are some other fields which are of less importance and contribute to this being a somewhat messy data set.
+
+```{r two, eval = T}
+load(file = 'punch_profiles.Rdata')
+load(file = 'punch_types.Rdata')
+```
+
+There are 2135 labeled punch profiles each with a labeled punch type. Use the `punch_types` data frame as ground truth for punch type (labeled 1-6) in addition to the boxers stance (orthodox or southpaw), and punching head (right or left). The punch types are below.
+
+```{r}
+###### PUNCH TYPES
+#1 - Cross
+#2 - Hook
+#3 - Jab
+#4 - Upper Cut
+#5 - Overhand (shouldn't be any of these)
+#6 - Unknown (shouldn't be any of these)
+```
+
+
+### 6
+**Features**: Create at least 10 new features from the punch profiles. They can be combinations of x and y acceleration or individually from either. Explain how these features have been constructed.
+
+Features:
+
+1.) Maximum value of Y
+2.) Minimum value of Y
+3.) Slope of Y: Max(Y)-Min(Y)/ Time Range
+4.) Maximum value of X
+5.) Minimum value of X
+6.) Slope: Max(X)-Min(Y)/ Time Range
+7.) IQR X
+8.) IQR Y
+9.) Median X
+10.) Median Y
+
+First I convert the list of punch profiles into a data frame using the variables defined above.
+
+```{r}
+datalist = list()
+
+for(i in 1:nrow(punch_types)){
+  row <- c()
+  row[1] <- max(profiles[[i]]$profile[,3]) #Max Y
+  row[2] <- min(profiles[[i]]$profile[,3]) #Min Y
+  row[3] <- (row[1]-row[2])/(which.max( profiles[[i]]$profile[,3])-which.min( profiles[[i]]$profile[,3])) # Slope Y
+  row[4] <- max(profiles[[i]]$profile[,2]) #Max X
+  row[5] <- min(profiles[[i]]$profile[,2]) #Min X
+  row[6] <- (row[4]-row[5])/(which.max( profiles[[i]]$profile[,2])-which.min( profiles[[i]]$profile[,2])) # Slope X
+  row[7] <- IQR(profiles[[i]]$profile[,3]) #IQR(Y)
+  row[8] <- IQR(profiles[[i]]$profile[,2]) #IQR(X)
+  row[9] <- median(profiles[[i]]$profile[,3]) #Median(Y)
+  row[10] <- median(profiles[[i]]$profile[,2]) #Median(X)
+  row[11] <- punch_types$hand[i] #left or right handed
+  row[12] <- punch_types$st[i] #stance
+  row[13] <- punch_types$pt[i] #Punchtype
+  datalist[[i]] <- row
+}
+
+profileDF <- as.data.frame(do.call("rbind", datalist))
+profileDF$V13 <- as.factor(profileDF$V13)
+```
+
+### 7
+**Multinomial Model** Fit a multinomial model to estimate each of the punch types. Which of the punch types have the most difficulty in being separated?
+
+```{r}
+library(nnet)
+fit <- multinom(V13 ~., data = profileDF, trace = F)
+summary(fit)
+
+
+pred <- predict(fit, profileDF, type = "class")
+table(profileDF$V13, pred)
+cat("Accuracy = ", mean(pred == profileDF$V13))
+```
+
+This model isn't great -- it has a lot of trouble predicting Upper cuts especially.
+
+### 8
+**Logistic Regression** Consider bucketing the punches into two groups (straights and hooks). Are you able to improve accuracy in any way?
+
+```{r}
+profileDF$V14 <- as.factor(ifelse(profileDF$V13 == 1 | profileDF$V13 == 2, 0, 1))
+fitbin <- glm(V14~. -V13,data = profileDF, family=binomial)
+summary(fitbin)
+
+pred <- predict(fitbin, profileDF, type = "response")
+pred <- ifelse(pred>=.5,1,0)
+cat("Accuracy = ", mean(pred == profileDF$V14))
+```
+
+We can see that accuracy increases to around 80%.
+
+
+
+
